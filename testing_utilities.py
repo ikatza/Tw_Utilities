@@ -62,6 +62,24 @@ def give_follow(usr):
         return True
 
 
+def give_unfollow(usr, days_to_wait):
+    if usr['following']:
+        if not usr['followed_by']:
+            date_format = "%Y-%m-%d"
+            try:
+                s = usr['date_followed']
+                d = datetime.datetime.strptime(s, date_format) + datetime.timedelta(days=days_to_wait)
+            except ValueError:
+                s = usr['date_retrieved']
+                d = datetime.datetime.strptime(s, date_format) + datetime.timedelta(days=days_to_wait)
+            if d.date() < datetime.date.today():
+                return True
+    elif usr['omit']:
+        return False
+    else:
+        return False
+
+
 def get_account_followers_and_initialize_data(scrname_to_stalk):
     tokens_list = open_json('Tokens.json')
     tweepy_api = create_tweepy_object(tokens_list[0])
@@ -119,21 +137,23 @@ def get_account_followers_and_initialize_data(scrname_to_stalk):
 def follow_users(scrname_to_stalk, follows_limit):
     tokens_list = open_json('Tokens.json')
     tweepy_api = create_tweepy_object(tokens_list[0])
-    # user = tweepy_api.get_user(screen_name=screen_name)
     try:
         me = tweepy_api.verify_credentials()
     except False:
         print "Wrong credentials"
         exit()
     print "I'm ", me.name, "(", me.screen_name, ")"
-    # print tweepy_api.me()
 
     print "I'll follow ", scrname_to_stalk, " followers."
-    # user_to_stalk = tweepy_api.get_user(screen_name=scrname_to_stalk)
 
     directory = 'Data_'+scrname_to_stalk
     file_name = directory+'/'+scrname_to_stalk+'_followers.json'
-    users_list = open_json(file_name)
+    try:
+        users_list = open_json(file_name)
+    except IOError:
+        print 'File ' + file_name + ' not found.'
+        print 'You have to run with --init argument first.'
+        exit()
     follow_count = 0
     for usr in users_list:
         if give_follow(usr):
@@ -153,88 +173,89 @@ def follow_users(scrname_to_stalk, follows_limit):
         json.dump(users_list, outfile, ensure_ascii=False)
 
 
-def unfollow_users():
+def unfollow_users(scrname_to_stalk, days_to_wait):
     tokens_list = open_json('Tokens.json')
     tweepy_api = create_tweepy_object(tokens_list[0])
-    # user = tweepy_api.get_user(screen_name=screen_name)
     try:
         me = tweepy_api.verify_credentials()
     except False:
         print "Wrong credentials"
         exit()
     print "I'm ", me.name, "(", me.screen_name, ")"
-    # print tweepy_api.me()
 
-    print "I'll unfollow ", scrname_to_stalk, " followers that haven't follow me back =|."
-    user_to_stalk = tweepy_api.get_user(screen_name=scrname_to_stalk)
+    print "I'll unfollow ", scrname_to_stalk, " followers that haven't follow me back =(."
 
-
-
-            ### After to compare:
-            # format = "%Y-%m-%d"
-            # s = data_retrieved
-            # d = datetime.datetime.strptime(s, format) + datetime.timedelta(days=10)
-            # if d.date() < datetime.date.today():
-            #     unfollow()
-
-
-
-
-def get_follws_and_befriend_them(screen_name):
-    tokens_list = open_json('Tokens.json')
-    tweepy_api = create_tweepy_object(tokens_list[0])
-    # user = tweepy_api.get_user(screen_name=screen_name)
+    directory = 'Data_'+scrname_to_stalk
+    file_name = directory+'/'+scrname_to_stalk+'_followers.json'
     try:
-        user = tweepy_api.verify_credentials()
-    except False:
-        print "Wrong credentials"
+        users_list = open_json(file_name)
+    except IOError:
+        print 'File ' + file_name + ' not found.'
+        print 'You have to run with --init argument first.'
         exit()
-    print "I'm ", user.name, "(", user.screen_name, ")"
-    # print tweepy_api.me()
-    print "I'll follow ", screen_name, " followers"
 
+    for usr in users_list:
+        if give_unfollow(usr, days_to_wait):
+            try:
+                tweepy_api.destroy_friendship(usr['screen_name'])
+                print "Just gave ", usr['screen_name'], "(", usr['name'], ") unfollow."
 
-    users_list = []
-    for page in tweepy.Cursor(tweepy_api.followers,
-                              screen_name=screen_name).pages():
-        usr = {}
-        for u in page:
-            usr['screen_name'] = u.screen_name
-            usr['name'] = u.name
-            # usr['location'] = u.location
-            # usr['description'] = u.description
-            # usr['image_url'] = u.profile_image_url
-            # users_list.append(us.copy())
+            except tweepy.error.TweepError as e:
+                print e
 
-            tweepy_api.create_friendship(u.screen_name)
-            print "Just gave ", u.screen_name, "(", u.name, ") follow"
+            usr['following'] = False
+            usr['omit'] = True
 
-            #tweepy_api.destroy_friendship(u.screen_name)
-            #print "On second taught better unfollow"
-            exit()
-
-    print 'Saving followers on '+screen_name+'.json'
-    with open(screen_name+'.json', 'w+') as outfile:
+    print "Updating the followers file."
+    with open(file_name, 'w+') as outfile:
         json.dump(users_list, outfile, ensure_ascii=False)
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+    description = """A twitter follower and unfollower app.
+                It's meant to run three distinct routines:
+                --init, --follow and -- unfollow.""")
 
-    # screen_name_to_stalk = "Cintli"
-    # get_follws_and_befriend_them(screen_name_to_stalk)
+    parser.add_argument('-s', '--screen_name',
+                        help='User screen name',
+                        # action='store_true',
+                        # default=False,
+                        required=True)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--init',
+                        help='Initial run to get an accounts follwers.',
+                        action='store_true',
+                        default=False,
+                        required=False)
+    group.add_argument('--follow',
+                        help='Run the following routine.',
+                        action='store_true',
+                        default=False,
+                        required=False)
+    parser.add_argument('-l', '--follows_limit',
+                        help='How many follows to give in one run.',
+                        # action='store_true',
+                        default=500)
+    group.add_argument('--unfollow',
+                        help='Run the unfollowing routine.',
+                        action='store_true',
+                        default=False,
+                        required=False)
+    parser.add_argument('-d', '--days_to_wait',
+                        help='Days to wait before unfollowing someone who did not follow back.',
+                        # action='store_true',
+                        default=10)
+    args = parser.parse_args()
+    screen_name_to_stalk = args.screen_name
+    follows_limit = int(args.follows_limit)
+    days_to_wait = int(args.days_to_wait)
 
-    # tokens_list = open_json('Tokens.json')
-    # tweepy_api = create_tweepy_object(tokens_list[0])
-    # screen_name = 'babrielpalacios'
-    # screen_name = 'gabyinthewild'
-    # try:
-    #     tweepy_api.create_friendship(screen_name)
-    #     print "Just gave ", screen_name, "(", screen_name, ") follow"
-    # except tweepy.error.TweepError as e:
-    #     print e
+    if args.init:
+        get_account_followers_and_initialize_data(screen_name_to_stalk)
 
-    # print "Out and ok"
+    if args.follow:
+        follow_users(screen_name_to_stalk, follows_limit)
 
-    screen_name_to_stalk = "DiegoCorro1"
-    # get_account_followers_and_initialize_data(screen_name_to_stalk)
-    follow_users(screen_name_to_stalk, 2)
+    if args.unfollow:
+        unfollow_users(screen_name_to_stalk, days_to_wait)
