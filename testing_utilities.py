@@ -115,8 +115,8 @@ def get_account_followers(scrname_to_stalk):
     tokens_list = open_json('Tokens_auth.json')
     tweepy_api = create_tweepy_object(tokens_list[0])
 
-    tokens_list_app = open_json('Tokens_app.json')
-    tweepy_api_app = create_tweepy_object(tokens_list_app[0])
+    # tokens_list_app = open_json('Tokens_app.json')
+    # tweepy_api_app = create_tweepy_object(tokens_list_app[0])
 
     try:
         me = tweepy_api.verify_credentials()
@@ -143,7 +143,7 @@ def get_account_followers(scrname_to_stalk):
     followers_list = []
     # for page in tweepy.Cursor(tweepy_api.followers,
     #                           screen_name=scrname_to_stalk).pages():
-    for page in tweepy.Cursor(tweepy_api_app.followers_ids,
+    for page in tweepy.Cursor(tweepy_api.followers_ids,
                               screen_name=scrname_to_stalk).pages():
 
         usr = {}
