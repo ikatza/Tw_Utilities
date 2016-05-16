@@ -41,6 +41,16 @@ def create_tweepy_object(tokens):
     return tweepy_api
 
 
+def roll_tokens(tokens_f, resource):
+    tokens_list = open_json(tokens_f)
+    for tokens in tokens_list:
+        tweepy_api = create_tweepy_object(tokens)
+        limits = twitter_remaining_calls(tweepy_api)
+        remaining_lookup = limits[resource]['remaining']
+        if remaining_lookup > 0:
+            break
+    return tweepy_api
+
 def give_follow(usr):
     if not usr['date_retrieved']:
         return False
@@ -173,9 +183,14 @@ def get_account_followers(scrname_to_stalk):
         print "Retrieved followers: ", str(len(followers_list))
 
 
-def get_friendship_status(scrname_to_stalk):
-    tokens_list = open_json('Tokens_auth.json')
-    tweepy_api = create_tweepy_object(tokens_list[0])
+def get_friendship_status(scrname_to_stalk, pickup=False):
+    # tokens_list = open_json('Tokens_auth.json')
+    # for tokens in tokens_list:
+    #     tweepy_api = create_tweepy_object(tokens)
+    #     limits = twitter_remaining_calls(tweepy_api)
+    #     remaining_lookup = limits['Friendships_lookup']['remaining']
+    tokens_f = 'Tokens_auth.json'
+    resource = 'Friendships_lookup'
 
     print "Now I'll get the friendship status that ", scrname_to_stalk, " followers have with me.\n"
 
@@ -190,10 +205,18 @@ def get_friendship_status(scrname_to_stalk):
 
     lookup_limit = 100
     warningg = False
+    start = 0
+    if pickup:
+        for idx, usr in enumerate(users_list):
+            if not usr['date_retrieved']:
+                start = idx
+                break
+        print "Picking up at index, ", idx, "of the followers list.\n"
     # chunks=[users_list[x:x+lookup_limit] for x in xrange(0, len(users_list), lookup_limit)]
-    for i in range(0, len(users_list), lookup_limit):
+    for i in range(start, len(users_list), lookup_limit):
         chunk = users_list[i:i + lookup_limit]
         ids_in_chunk = [chunk[j]['id'] for j in xrange(0, len(chunk))]
+        tweepy_api = roll_tokens(tokens_f, resource)
         relationships = tweepy_api.lookup_friendships(user_ids=ids_in_chunk)
         for idx, relationship in enumerate(relationships):
             ### ###  debugging stuff, will remove in a later commit
@@ -203,18 +226,17 @@ def get_friendship_status(scrname_to_stalk):
             if users_list[i+idx]['id'] == relationship.id:
                 users_list[i+idx]['followed_by'] = relationship.is_followed_by
                 users_list[i+idx]['following'] = relationship.is_following
-
                 users_list[i+idx]['date_retrieved'] = str(datetime.date.today())
             else:
                 warningg = True
+        print "Updating the followers file."
+        with open(file_name, 'w+') as outfile:
+            json.dump(users_list, outfile, ensure_ascii=False)
+
     if warningg:
         print "Warning!.\n"
         print "Something odd happened in the get_friendship_status routine."
         exit()
-
-    print "Updating the followers file."
-    with open(file_name, 'w+') as outfile:
-        json.dump(users_list, outfile, ensure_ascii=False)
 
     ### ### NO LONGER USING THIS CALL, MAYBE SOME DAY WITH THREADING?
     # friendship = tweepy_api.show_friendship(
@@ -222,7 +244,6 @@ def get_friendship_status(scrname_to_stalk):
     #     # target_screen_name=u.screen_name)
     #     source_id=me.id,
     #     target_id=usr['id'])
-
 
 
 def follow_users(scrname_to_stalk, follows_limit, verbose=False):
@@ -318,22 +339,7 @@ if __name__ == '__main__':
     # resource = 'friendship'
     # limits = twitter_remaining_calls(tweepy_api)
     # print limits
-
-    # friendship_show = tweepy_api.show_friendship(
-    #     # source_screen_name=me.screen_name,
-    #     # target_screen_name=u.screen_name)
-    #     source_id= 4911512006,
-    #     target_id= 702249555744542720)
-    # print friendship_show
-
-    # users_ids = [300930368, 2829415962, 414372592, 2742186972, 1537494776, 547543051, 271596821, 361385595, 217015240, 1408453520]
-    # friendship_lookup = tweepy_api.lookup_friendships(user_ids=users_ids)
-    # print friendship_lookup
-
-    # limits = twitter_remaining_calls(tweepy_api)
-    # print limits
-
-
+    # print limits['Friendships_lookup']['remaining']
 
     parser = argparse.ArgumentParser(
     description = """A twitter follower and unfollower app.
@@ -348,6 +354,11 @@ if __name__ == '__main__':
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--init',
                         help='Initial run to get an accounts follwers.',
+                        action='store_true',
+                        default=False,
+                        required=False)
+    group.add_argument('--friendship',
+                        help='Pick up where friendship status left..',
                         action='store_true',
                         default=False,
                         required=False)
@@ -393,7 +404,8 @@ if __name__ == '__main__':
     if args.init:
         get_account_followers(screen_name_to_stalk)
         get_friendship_status(screen_name_to_stalk)
-
+    if args.friendship:
+        get_friendship_status(screen_name_to_stalk, pickup=True)
     if args.follow:
         if verbose:
             print "Asking to be verbose."
