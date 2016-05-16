@@ -41,19 +41,9 @@ def create_tweepy_object(tokens):
     return tweepy_api
 
 
-# def twitter_remaining_calls(twitter):
-#     limits = twitter.rate_limit_status(resources='friends,followers')
-
-#     response = {
-#         # 'Followers': limits['resources']['followers']['/followers/ids'],
-#         # 'Friends': limits['resources']['friends']['/friends/ids']}
-#         'Followers': limits['resources']['followers']['/followers/list'],
-#         'Friends': limits['resources']['friends']['/friends/list']}
-
-#     return response
-
-
 def give_follow(usr):
+    if not usr['date_retrieved']:
+        return False
     if usr['followed_by'] or usr['following']:
         return False
     elif usr['omit']:
@@ -63,6 +53,8 @@ def give_follow(usr):
 
 
 def give_unfollow(usr, days_to_wait):
+    if not usr['date_retrieved']:
+        return False
     if usr['following']:
         if not usr['followed_by']:
             date_format = "%Y-%m-%d"
@@ -78,6 +70,19 @@ def give_unfollow(usr, days_to_wait):
         return False
     else:
         return False
+
+
+def twitter_remaining_calls(twitter):
+    limits = twitter.rate_limit_status(resources='friendships,followers')
+    # limits = twitter.rate_limit_status()
+
+    response = {
+        'Followers': limits['resources']['followers']['/followers/ids'],
+        'Friendships_show': limits['resources']['friendships']['/friendships/show'],
+        'Friendships_lookup': limits['resources']['friendships']['/friendships/lookup']
+        }
+
+    return response
 
 
 def get_user(usr_identifier):
@@ -96,7 +101,7 @@ def get_user(usr_identifier):
     return usr
 
 
-def get_account_followers_and_initialize_data(scrname_to_stalk):
+def get_account_followers(scrname_to_stalk):
     tokens_list = open_json('Tokens_auth.json')
     tweepy_api = create_tweepy_object(tokens_list[0])
 
@@ -114,7 +119,7 @@ def get_account_followers_and_initialize_data(scrname_to_stalk):
 
     print "I'll get ", scrname_to_stalk, " followers list."
     user_to_stalk = tweepy_api.get_user(screen_name=scrname_to_stalk)
-    print "He/She has " + str(user_to_stalk.followers_count) + " followers."
+    print "He/She has " + str(user_to_stalk.followers_count) + " followers.\n"
     # print user.friends_count
 
     directory = 'Data_'+scrname_to_stalk
@@ -135,17 +140,24 @@ def get_account_followers_and_initialize_data(scrname_to_stalk):
         for u in page:
             # usr['screen_name'] = u.screen_name
             # usr['name'] = u.name
-            usr['id'] = u
-            usr['date_retrieved'] = str(datetime.date.today())
-            usr['date_followed'] = ''
 
-            friendship = tweepy_api.show_friendship(
-                # source_screen_name=me.screen_name,
-                # target_screen_name=u.screen_name)
-                source_id=me.id,
-                target_id=usr['id'])
-            usr['followed_by'] = friendship[0].followed_by
-            usr['following'] = friendship[0].following
+            # usr['id'] = u
+            # usr['date_retrieved'] = str(datetime.date.today())
+            # usr['date_followed'] = ''
+            # friendship = tweepy_api.show_friendship(
+            #     # source_screen_name=me.screen_name,
+            #     # target_screen_name=u.screen_name)
+            #     source_id=me.id,
+            #     target_id=usr['id'])
+            # usr['followed_by'] = friendship[0].followed_by
+            # usr['following'] = friendship[0].following
+            # usr['omit'] = False
+
+            usr['id'] = u
+            usr['date_retrieved'] = ''
+            usr['date_followed'] = ''
+            usr['followed_by'] = ''
+            usr['following'] = ''
             usr['omit'] = False
 
             followers_list.append(usr.copy())
@@ -159,6 +171,58 @@ def get_account_followers_and_initialize_data(scrname_to_stalk):
         "The number of reported and retrieved followers don't match."
         print "Reported followers: ", str(user_to_stalk.followers_count)
         print "Retrieved followers: ", str(len(followers_list))
+
+
+def get_friendship_status(scrname_to_stalk):
+    tokens_list = open_json('Tokens_auth.json')
+    tweepy_api = create_tweepy_object(tokens_list[0])
+
+    print "Now I'll get the friendship status that ", scrname_to_stalk, " followers have with me.\n"
+
+    directory = 'Data_'+scrname_to_stalk
+    file_name = directory+'/'+scrname_to_stalk+'_followers.json'
+    try:
+        users_list = open_json(file_name)
+    except IOError:
+        print 'File ' + file_name + ' not found.'
+        # print 'You have to run with --init argument first.'
+        exit()
+
+    lookup_limit = 100
+    warningg = False
+    # chunks=[users_list[x:x+lookup_limit] for x in xrange(0, len(users_list), lookup_limit)]
+    for i in range(0, len(users_list), lookup_limit):
+        chunk = users_list[i:i + lookup_limit]
+        ids_in_chunk = [chunk[j]['id'] for j in xrange(0, len(chunk))]
+        relationships = tweepy_api.lookup_friendships(user_ids=ids_in_chunk)
+        for idx, relationship in enumerate(relationships):
+            ### ###  debugging stuff, will remove in a later commit
+            # print "i ", i
+            # print "idx ", idx
+            # print "i+idx ", i+idx
+            if users_list[i+idx]['id'] == relationship.id:
+                users_list[i+idx]['followed_by'] = relationship.is_followed_by
+                users_list[i+idx]['following'] = relationship.is_following
+
+                users_list[i+idx]['date_retrieved'] = str(datetime.date.today())
+            else:
+                warningg = True
+    if warningg:
+        print "Warning!.\n"
+        print "Something odd happened in the get_friendship_status routine."
+        exit()
+
+    print "Updating the followers file."
+    with open(file_name, 'w+') as outfile:
+        json.dump(users_list, outfile, ensure_ascii=False)
+
+    ### ### NO LONGER USING THIS CALL, MAYBE SOME DAY WITH THREADING?
+    # friendship = tweepy_api.show_friendship(
+    #     # source_screen_name=me.screen_name,
+    #     # target_screen_name=u.screen_name)
+    #     source_id=me.id,
+    #     target_id=usr['id'])
+
 
 
 def follow_users(scrname_to_stalk, follows_limit, verbose=False):
@@ -248,6 +312,29 @@ def unfollow_users(scrname_to_stalk, days_to_wait, verbose=False):
 
 
 if __name__ == '__main__':
+
+    # tokens_list = open_json('Tokens_auth.json')
+    # tweepy_api = create_tweepy_object(tokens_list[0])
+    # resource = 'friendship'
+    # limits = twitter_remaining_calls(tweepy_api)
+    # print limits
+
+    # friendship_show = tweepy_api.show_friendship(
+    #     # source_screen_name=me.screen_name,
+    #     # target_screen_name=u.screen_name)
+    #     source_id= 4911512006,
+    #     target_id= 702249555744542720)
+    # print friendship_show
+
+    # users_ids = [300930368, 2829415962, 414372592, 2742186972, 1537494776, 547543051, 271596821, 361385595, 217015240, 1408453520]
+    # friendship_lookup = tweepy_api.lookup_friendships(user_ids=users_ids)
+    # print friendship_lookup
+
+    # limits = twitter_remaining_calls(tweepy_api)
+    # print limits
+
+
+
     parser = argparse.ArgumentParser(
     description = """A twitter follower and unfollower app.
                 It's meant to run three distinct routines:
@@ -304,12 +391,13 @@ if __name__ == '__main__':
     verbose = args.verbose
 
     if args.init:
-        get_account_followers_and_initialize_data(screen_name_to_stalk)
+        get_account_followers(screen_name_to_stalk)
+        get_friendship_status(screen_name_to_stalk)
 
     if args.follow:
         if verbose:
             print "Asking to be verbose."
-            print "Keep in mind it requires more calls to the API and might increase the waiting time."
+            print "Keep in mind it requires more calls to the API and might increase the waiting time.\n"
         follow_users(screen_name_to_stalk, follows_limit, verbose)
 
     if args.unfollow:
